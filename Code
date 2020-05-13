@@ -1,1 +1,339 @@
-#BY Annika Cowen, Elijah Chandler, Quinn Alfaro
+###Modified to not include any names passwords, tokens, or api account info needed for certain data collection
+
+#!pip install sodapy
+#!pip install plotly
+#pip install geopandas==0.3.0
+#pip install pyshp == 1.2.10
+#pip install shapely
+#conda install -c plotly plotly-orca
+#conda install -c plotly plotly-geo
+import pandas as pd
+import psycopg2
+from sodapy import Socrata
+import time
+import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+from plotly.offline import plot, iplot
+import plotly.express as px
+import numpy as np
+import plotly as py
+import plotly.graph_objs
+import plotly.express as px
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot
+import os
+import plotly.io as pio
+plotly.io.orca.ensure_server()
+py.offline.init_notebook_mode(connected = True)
+import plotly.figure_factory as ff
+import geopandas as gpd
+from shapely.geometry import Point, Polygon, shape
+
+def evictionData():
+    client = Socrata("data.sfgov.org", None)
+    results = client.get("5cei-gny5", limit=100000)
+    EvictionsDataframe = pd.DataFrame.from_records(results).fillna('EMPTY')
+    return EvictionsDataframe
+
+
+def load_pandas():
+    client = Socrata("data.sfgov.org", None)
+    results = client.get("i98e-djp9", limit=10000)
+    HousingDataframe = pd.DataFrame.from_records(results).fillna('0')
+    HousingDataframe.to_csv('Final_file.tdf', sep='\t', index=False)
+    load_sql('Final_file.tdf')
+    return HousingDataframe
+
+def load_sql(csvData):
+    ### Set up your SQL conection:
+    CONNECTION_STRING = xxxxx
+    SQLConn = psycopg2.connect(CONNECTION_STRING)
+    SQLCursor = SQLConn.cursor()
+    schema_name = xxxxxx
+    table_name = xxxxx
+
+    try:
+        SQLCursor.execute("""DROP TABLE %s.%s;""" % (schema_name, table_name))
+        SQLConn.commit()
+    except psycopg2.ProgrammingError:
+        print("CAUTION: Tablenames not found: %s.%s" % (schema_name, table_name))
+        SQLConn.rollback()
+
+    ## Load into DB
+    SQLCursor = SQLConn.cursor()
+    SQLCursor.execute("""
+        CREATE TABLE %s.%s   
+            (permit_number varchar,
+            permit_type varchar,
+            permit_type_definition varchar,
+            permit_creation_date varchar,
+            block varchar,
+            lot varchar,
+            street_number varchar,
+            street_name varchar,
+            street_suffix varchar,
+            description varchar,
+            status varchar,
+            status_date varchar,
+            filed_date varchar,
+            supervisor_district varchar,
+            neighborhoods_analysis_boundaries varchar,
+            zipcode int,
+            location varchar,
+            record_id varchar,
+            ":@computed_region_6qbp_sg9q" varchar,
+            ":@computed_region_qgnn_b9vv" varchar,
+            ":@computed_region_26cr_cadq" varchar,
+            ":@computed_region_ajp5_b2md" varchar,
+            ":@computed_region_bh8s_q3mv" varchar,
+            ":@computed_region_yftq_j783" varchar,
+            ":@computed_region_rxqg_mtj9" varchar,
+            ":@computed_region_jx4q_fizf" varchar,
+            ":@computed_region_uruc_drv6" varchar,
+            plansets varchar,
+            unit varchar,
+            revised_cost varchar,
+            unit_suffix varchar,
+            street_number_suffix varchar,
+            number_of_existing_stories varchar,
+            number_of_proposed_stories varchar,
+            estimated_cost varchar,
+            existing_use varchar,
+            proposed_use varchar,
+            existing_construction_type varchar,
+            existing_construction_type_description varchar,
+            proposed_construction_type varchar,
+            proposed_construction_type_description varchar,
+            issued_date varchar,
+            existing_units varchar,
+            proposed_units varchar,
+            site_permit varchar,
+            first_construction_document_date varchar,
+            permit_expiration_date varchar,
+            structural_notification varchar,
+            fire_only_permit varchar,
+            voluntary_soft_story_retrofit varchar,
+            completed_date varchar,
+            tidf_compliance varchar
+            );""" % (schema_name, table_name))
+    SQLConn.commit()
+    try:
+        SQLCursor.execute("""Grant all on %s.%s to students;""" % (schema_name, table_name))
+        SQLConn.commit()
+    except psycopg2.ProgrammingError:
+        print("CAUTION: unable to grant access: %s.%s" % (schema_name, table_name))
+        SQLConn.rollback()
+
+    SQL_STATEMENT = f"""
+        COPY {schema_name}.{table_name} FROM STDIN WITH
+            CSV
+            HEADER
+            DELIMITER AS E'\t';
+        """
+
+    SQLCursor.copy_expert(sql=SQL_STATEMENT , file=open(csvData, 'r'))
+    SQLConn.commit()
+    print("data loaded into SQL")
+
+def tests(file):
+
+    CONNECTION_STRING = xxxx
+    DF = pd.read_csv(file, sep='\t')
+    SQLConn = psycopg2.connect(CONNECTION_STRING)
+    SQLCursor = SQLConn.cursor()
+    ### This file tests our data to make sure that it matches.
+
+    ### Test #1: Checking the size of the data
+    SQLCursor.execute("""Select count(*) from sf_housing.HousingData;""")
+    sql_rows = SQLCursor.fetchall()
+    sql_rows = sql_rows[0][0]
+
+    DF_rows = DF.shape[0]
+
+    assert DF_rows == sql_rows 
+
+    ### Test #2: Checking the values of an important columns
+    SQLCursor.execute("""SELECT housingdata."zipcode", count(1) as ct from sf_housing.HousingData group by 1;""")
+    ### Make sure that the order is alphabetical (lists of tuples are sorted by first element)
+    sql_rows = SQLCursor.fetchall()
+    sql_rows = pd.DataFrame(sql_rows, columns=['zipcode', 'ct']).sort_values(['zipcode'], ascending = True).reset_index(drop=True)
+
+    DF_rows = DF.zipcode.value_counts().to_frame().reset_index().rename(columns={'zipcode' : 'ct', 'index' : 'zipcode'}).sort_values(['zipcode'], ascending=True).reset_index(drop=True)
+    assert DF_rows.equals(sql_rows)
+
+def plot1():
+    CONNECTION_STRING = xxxxx
+    host= xxxx password=xxxx
+    SQLConn = psycopg2.connect(CONNECTION_STRING)
+    SQLCursor = SQLConn.cursor()
+    SQLCursor.execute("""Select * from sf_housing.HousingData limit(1000);""")
+    HDF = pd.DataFrame(SQLCursor.fetchall())
+    HDF = HDF[HDF[14] != 0]
+    fig = px.bar(HDF, x=14, y=29, labels = {"Neighborhood":"estimated cost of new permit"})
+    fig.update_layout(
+    title="Neighborhood V Cost",
+    xaxis_title="Neighborhood",
+    yaxis_title="actual cost of construction",
+    font=dict(
+        family="Courier New, monospace",
+        size=18,
+        color="#7f7f7f"
+        )
+    )
+    fig.show()
+    fig.write_image("fig1.pdf")
+
+
+    
+def plot3():
+    CONNECTION_STRING = xxxxx
+    SQLConn = psycopg2.connect(CONNECTION_STRING)
+    SQLCursor = SQLConn.cursor()
+    SQLCursor.execute("""Select * from sf_housing.HousingData limit(90000);""")
+    hdf = pd.DataFrame(SQLCursor.fetchall())
+    fig = px.scatter(hdf, x=3, y= 34)
+    fig.update_layout(
+    title="Cost Over Time",
+    xaxis_title="date",
+    yaxis_title="actual cost of construction",
+    font=dict(
+        family="Courier New, monospace",
+        size=18,
+        color="#7f7f7f"
+        )
+    )
+    fig.show()
+    fig.write_image("fig3.pdf")
+
+
+
+def plot_3():
+    CONNECTION_STRING = xxxxx
+    SQLCursor = SQLConn.cursor()
+    #Cleaning and specifying the year and requesting the cost and year
+    SQLCursor.execute("""Select estimated_cost, location from sf_housing.HousingData where DATE_PART('year', permit_creation_date::date) >= '2000';""")   
+    HousingDFPlotting = pd.DataFrame(SQLCursor.fetchall())
+
+    #Converting cost to float
+    cost = HousingDFPlotting[[0]].astype(float)
+    
+    #Extracting Longitude and Latitude
+    latlong = HousingDFPlotting[[1]]
+    splitCol = latlong[1].str.split(", ", n = 1, expand = True) 
+    lat = splitCol[0].str.extract('(\d+.?\d+)')
+    long = splitCol[1].str.extract('(\d+.?\d+)')
+    lat[0] =lat[0].astype(float)
+    long[0] = long[0].astype(float)
+    lat = pd.Series(lat[0])
+    long = pd.Series(-long[0])
+    latList = lat.values.tolist()
+    longList = long.values.tolist()
+    d = {'latList': latList, 'longList':longList}
+    
+    #Mapbox token
+    mapbox_access_token = "pk.eyJ1IjoiZWxsZWMzIiwiYSI6ImNqdG44NXlnYTB1bm80YXBlcnA3YTVydHMifQ.bonAUzLYJidZjEJ9EYwBLA"
+
+    fig = px.density_mapbox(d, lat='latList',lon='longList', z = cost[0], 
+                            radius=10, center=dict(lat=37.7751, lon=-122.4194), 
+                            zoom=10, mapbox_style="stamen-terrain")
+    fig.show()
+
+def plot4():
+    CONNECTION_STRING = xxxxx
+    SQLConn = psycopg2.connect(CONNECTION_STRING)
+    SQLCursor = SQLConn.cursor()
+    #Grouping by neighborhood and summing cost and deviding by number of units after 2000, with outliers and nulls removed
+    SQLCursor.execute("""SELECT avg(cast(revised_cost as FLOAT))/avg(cast(proposed_units as FLOAT)) as CostPerUnit, neighborhoods_analysis_boundaries from "sf_housing"."housingdata" where DATE_PART('year', permit_creation_date::date) >= '2000'and cast(proposed_units as FLOAT) != 0 and permit_type = '1' and cast(revised_cost as FLOAT) > 1 and neighborhoods_analysis_boundaries != '0' group by 2 order by 1 DESC;""")
+    HDF = pd.DataFrame(SQLCursor.fetchall())
+    fig = px.bar(HDF, x=1, y=0, labels = {"Neighborhood"})
+    fig.update_layout(
+    title="Neighborhood V Average cost per unit in New Development",
+    xaxis_title=" ",
+    yaxis_title="Average cost per unit",
+    font=dict(
+        family="Courier New, monospace",
+        size=10,
+        color="#7f7f7f"
+        )
+    )
+    fig.show()
+
+
+def plot_5():
+    df = evictionData()
+    #Grouping by neighborhood and then counting
+    df = df.groupby('neighborhood').agg('count')
+    df = df.sort_values(by=['city'], ascending=False)
+    df = df.drop(['EMPTY', 'Presidio', 'Golden Gate Park'])
+    df = df.drop(['eviction_id', 'address', 'state', 'zip'], axis=1)
+
+    fig = px.bar(df, x = df.index, y = df.city, labels = {"Neighborhood"})
+    fig.update_layout(
+    title="Neighborhood V Evictions",
+    xaxis_title=" ",
+    yaxis_title="Evictions",
+    font=dict(
+        family="Courier New, monospace",
+        size=10,
+        color="#7f7f7f"
+        )
+    )
+    fig.show()
+
+def plot_5():
+    df = evictionData()
+    #Grouping by neighborhood and then counting
+    df['file_date'] = df['file_date'].astype(str).str[:4]
+    df = df[["file_date", "zip", "neighborhood"]]
+    df = df.groupby(['neighborhood', 'file_date']).agg('count')
+    df.reset_index(inplace=True)
+    df = df.astype({"file_date": int})
+    df = df.loc[(df.file_date > 1999) & (df.file_date < 2020)]
+    ###specialize here to create similar graphs
+    #df = df.loc[(df.neighborhood == 'Japantown') | (df.neighborhood == 'Glen Park') | (df.neighborhood == 'Financial District/South Beach') | (df.neighborhood == 'Twin Peaks')]
+    df = df.loc[(df.neighborhood == 'Mission')]
+
+    fig = px.scatter(df, x = "file_date", y = "zip", color = "neighborhood", trendline = "lowess")
+    fig.update_layout(title="Evictions over Time",
+                     xaxis_title="Year",
+                    yaxis_title="Number of Evictions",
+                     font=dict(
+                        family="Courier New, monospace",
+                        size=18,
+                        color="#7f7f7f"
+                        )
+                     )
+    
+    fig.show()
+
+def plot6():
+    CONNECTION_STRING =xxxxx
+    SQLConn = psycopg2.connect(CONNECTION_STRING)
+    SQLCursor = SQLConn.cursor()
+    #Grouping by neighborhood and summing cost and deviding by number of units after 2000, with outliers and nulls removed
+#    SQLCursor.execute("""SELECT DATE_PART('year', permit_creation_date::date) as DPyear, avg(cast(revised_cost as FLOAT)), neighborhoods_analysis_boundaries FROM "sf_housing"."housingdata" where DATE_PART('year', permit_creation_date::date) >= '2000' and neighborhoods_analysis_boundaries != 'Golden Gate Park' and neighborhoods_analysis_boundaries != '0' and neighborhoods_analysis_boundaries != 'McLaren Park' and neighborhoods_analysis_boundaries != 'Glen Park' and neighborhoods_analysis_boundaries != 'Presidio'and neighborhoods_analysis_boundaries != 'Treasure Island' group by 1,3;""")
+    SQLCursor.execute("""SELECT DATE_PART('year', permit_creation_date::date) as DPyear, avg(cast(revised_cost as FLOAT)), neighborhoods_analysis_boundaries FROM "sf_housing"."housingdata" where DATE_PART('year', permit_creation_date::date) < '2020' and DATE_PART('year', permit_creation_date::date) >= '2000' and (neighborhoods_analysis_boundaries = 'Mission') group by 1,3;""")
+    HDF = pd.DataFrame(SQLCursor.fetchall())
+    #SQLCursor.execute("""SELECT DATE_PART('year', permit_creation_date::date) as DPyear, avg(cast(revised_cost as FLOAT)) FROM "sf_housing"."housingdata" where DATE_PART('year', permit_creation_date::date) >= '2000' group by 1;""")
+    HDF2 = pd.DataFrame(SQLCursor.fetchall())
+    HDF2[2] = 'City Average'
+    
+    frames = [HDF, HDF2]
+    result = pd.concat(frames)
+    
+    fig = px.scatter(result, x = 0, y = 1, color = 2, trendline = "lowess")
+    fig.update_layout(yaxis_type="log",
+                      title="Average cost per unit in New Development over Time",
+                     xaxis_title="Year",
+                    yaxis_title="Cost Per Unit",
+                     font=dict(
+                        family="Courier New, monospace",
+                        size=18,
+                        color="#7f7f7f"
+                        )
+                     )
+    
+    fig.show()
+
